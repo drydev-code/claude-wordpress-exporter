@@ -4,12 +4,12 @@ Export WordPress content from a WordPress site to local files for editing.
 
 ## Script Reference
 
-The full script is available at `.claude/skills/wp-export.js`
+The script `wp-export.js` is bundled in this skill folder.
 
 ## Quick Start
 
 ```bash
-cd scripts && node wp-export.js
+node wp-export.js
 ```
 
 ## CLI Options

@@ -4,13 +4,13 @@ Import WordPress content from exported files to a WordPress site.
 
 ## Script Reference
 
-The full script is available at `.claude/skills/wp-import.js`
+The script `wp-import.js` is bundled in this skill folder.
 
 ## Quick Start
 
 ```bash
-cd scripts && node wp-import.js --dry-run  # Preview first
-cd scripts && node wp-import.js            # Execute import
+node wp-import.js --dry-run  # Preview first
+node wp-import.js            # Execute import
 ```
 
 ## CLI Options
