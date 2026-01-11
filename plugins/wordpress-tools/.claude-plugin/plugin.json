@@ -5,7 +5,7 @@
   "author": {
     "name": "drydev-code"
   },
-  "repository": "https://github.com/drydev-code/claude-wordpress-exporter",
+  "repository": "https://github.com/drydev-code/claude-wordpress-toolbox",
   "license": "MIT",
   "keywords": ["wordpress", "gutenberg", "seo", "rank-math", "yoast", "content-management"],
   "skills": "./skills/"

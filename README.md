@@ -7,7 +7,7 @@ A Claude Code skills marketplace for WordPress content management, SEO optimizat
 Add this marketplace to Claude Code:
 
 ```bash
-/plugin marketplace add drydev-code/claude-wordpress-exporter
+/plugin marketplace add drydev-code/claude-wordpress-toolbox
 ```
 
 Then install the plugin:
@@ -22,6 +22,8 @@ Then install the plugin:
 |-------|---------|-------------|
 | WordPress Export | `/wp-export` | Export WordPress content via REST API |
 | WordPress Import | `/wp-import` | Import content to WordPress |
+| WordPress Remote | `/wp-remote` | Connect to remote WordPress via REST API |
+| HTML to WordPress | `/wp-from-html` | Convert static HTML to WordPress with Docker |
 | Gutenberg Editor | `/gutenberg-editor` | Edit content with Gutenberg blocks |
 | Plugin Research | `/wp-plugin-research` | Research WordPress plugin APIs |
 | SEO Expert | `/seo-expert` | Optimize SEO with comprehensive rules |
@@ -41,6 +43,21 @@ Import edited content back to WordPress. Features:
 - Media re-upload with URL replacement
 - Plugin meta restoration
 - Dry-run preview
+
+### `/wp-remote`
+Connect to remote WordPress sites via REST API:
+- Secure Application Password authentication
+- Execute WordPress operations remotely
+- Pagination handling for large sites
+- UTF-8 encoding support (PowerShell recommended on Windows)
+
+### `/wp-from-html`
+Convert static HTML websites to fully functional WordPress:
+- Docker-based WordPress stack
+- Custom theme generation from HTML structure
+- Gutenberg block conversion
+- Visual testing with auto-retry
+- Smart resumption for interrupted conversions
 
 ### `/gutenberg-editor`
 Expert knowledge for editing WordPress Gutenberg block content:
@@ -125,6 +142,8 @@ Add a hero section to export/pages/home/body.html
 │       ├── skills/
 │       │   ├── wp-export/SKILL.md
 │       │   ├── wp-import/SKILL.md
+│       │   ├── wp-remote/SKILL.md
+│       │   ├── wp-from-html/SKILL.md
 │       │   ├── gutenberg-editor/SKILL.md
 │       │   ├── wp-plugin-research/SKILL.md
 │       │   └── seo-expert/SKILL.md
