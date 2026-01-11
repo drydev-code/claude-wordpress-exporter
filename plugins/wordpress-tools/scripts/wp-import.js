@@ -19,6 +19,11 @@ import {
   restoreMediaUrls,
   loadMediaMapping,
 } from './lib/media-handler.js';
+import {
+  loadChecksums,
+  compareChecksums,
+  generateChecksums,
+} from './lib/checksum.js';
 
 // CLI setup
 program
@@ -33,6 +38,7 @@ program
   .option('--no-media', 'Skip uploading media files')
   .option('--no-plugins', 'Skip importing plugin data')
   .option('--dry-run', 'Show what would be imported without making changes')
+  .option('-f, --force', 'Force import all items, ignoring checksums')
   .option('-v, --verbose', 'Verbose output')
   .parse();
 
@@ -297,6 +303,51 @@ async function importExtensionMeta(client, contentDir, postId, type, dryRun) {
 }
 
 /**
+ * Fetch stored checksums from WordPress post meta
+ */
+async function fetchRemoteChecksums(client, postId, type) {
+  try {
+    const endpoint = type === 'posts' ? '/posts' : '/pages';
+    const { data } = await client.request(`${endpoint}/${postId}?context=edit`);
+    const checksumData = data.meta?._wp_sync_checksums || data.all_meta?._wp_sync_checksums;
+    if (checksumData) {
+      return typeof checksumData === 'string' ? JSON.parse(checksumData) : checksumData;
+    }
+  } catch {
+    // No checksums stored yet
+  }
+  return null;
+}
+
+/**
+ * Store checksums in WordPress post meta
+ */
+async function storeRemoteChecksums(client, postId, type, checksums) {
+  try {
+    const endpoint = type === 'posts' ? '/posts' : '/pages';
+    await client.request(`${endpoint}/${postId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        meta: { _wp_sync_checksums: JSON.stringify(checksums) },
+      }),
+    });
+  } catch (error) {
+    // Try with all_meta field
+    try {
+      const endpoint = type === 'posts' ? '/posts' : '/pages';
+      await client.request(`${endpoint}/${postId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          all_meta: { _wp_sync_checksums: JSON.stringify(checksums) },
+        }),
+      });
+    } catch {
+      // Silently fail - checksum storage is optional
+    }
+  }
+}
+
+/**
  * Import a single post/page
  */
 async function importItem(slug, type, config, client, stats) {
@@ -328,12 +379,17 @@ async function importItem(slug, type, config, client, stats) {
     const originalMapping = await loadMediaMapping(join(contentDir, 'media-mapping.json'));
 
     if (originalMapping.size > 0) {
-      log.verbose(`  Uploading ${originalMapping.size} media files...`);
+      log.verbose(`  Processing ${originalMapping.size} media files...`);
 
-      mediaMapping = await uploadAllMedia(mediaDir, client, (filename, success, error) => {
+      mediaMapping = await uploadAllMedia(mediaDir, client, (filename, success, error, skipped) => {
         if (success) {
-          log.verbose(`    Uploaded: ${filename}`);
-          stats.mediaUploaded++;
+          if (skipped) {
+            log.verbose(`    Reused existing: ${filename}`);
+            stats.mediaReused++;
+          } else {
+            log.verbose(`    Uploaded: ${filename}`);
+            stats.mediaUploaded++;
+          }
         } else {
           log.verbose(`    Failed: ${filename} - ${error}`);
         }
@@ -356,6 +412,36 @@ async function importItem(slug, type, config, client, stats) {
     }
   } catch {
     // Item doesn't exist
+  }
+
+  // Load export checksums and check for changes (unless --force)
+  let exportChecksums = null;
+  let needsUpdate = true;
+
+  if (!options.force && existingItem) {
+    exportChecksums = await loadChecksums(join(contentDir, 'checksums.json'));
+
+    if (exportChecksums) {
+      const remoteChecksums = await fetchRemoteChecksums(client, existingItem.id, type);
+      const comparison = compareChecksums(exportChecksums, remoteChecksums);
+
+      if (!comparison.changed) {
+        log.verbose(`  No changes detected (checksum match)`);
+        return {
+          slug,
+          action: 'unchanged',
+          reason: 'checksum-match',
+          id: existingItem.id,
+        };
+      }
+
+      if (comparison.details.files.length > 0) {
+        log.verbose(`  Changed files: ${comparison.details.files.join(', ')}`);
+      }
+      if (comparison.details.media.length > 0) {
+        log.verbose(`  Changed media: ${comparison.details.media.join(', ')}`);
+      }
+    }
   }
 
   // Determine action based on mode
@@ -443,6 +529,19 @@ async function importItem(slug, type, config, client, stats) {
     options.dryRun
   );
 
+  // Store checksums in WordPress for future change detection
+  if (!options.dryRun) {
+    // Load checksums if not already loaded (for new items)
+    if (!exportChecksums) {
+      exportChecksums = await loadChecksums(join(contentDir, 'checksums.json'));
+    }
+
+    if (exportChecksums) {
+      await storeRemoteChecksums(client, result.id, type, exportChecksums);
+      log.verbose(`  Stored checksums for change tracking`);
+    }
+  }
+
   return { slug, action, id: result.id, extensions: importedExtensions };
 }
 
@@ -475,6 +574,9 @@ async function main() {
   log.info(`Input: ${config.importDir}`);
   log.info(`Type: ${config.contentType}`);
   log.info(`Mode: ${config.importMode}`);
+  if (options.force) {
+    log.info(`Force: enabled (ignoring checksums)`);
+  }
   console.log();
 
   // Read manifest
@@ -507,10 +609,11 @@ async function main() {
   }
 
   const stats = {
-    posts: { created: 0, updated: 0, skipped: 0, failed: 0 },
-    pages: { created: 0, updated: 0, skipped: 0, failed: 0 },
+    posts: { created: 0, updated: 0, skipped: 0, failed: 0, unchanged: 0 },
+    pages: { created: 0, updated: 0, skipped: 0, failed: 0, unchanged: 0 },
     pluginStats: null,
     mediaUploaded: 0,
+    mediaReused: 0,
     extensions: new Set(),
   };
 
@@ -558,6 +661,9 @@ async function main() {
             stats.posts.created++;
           } else if (result.action === 'update' || result.action === 'would-update') {
             stats.posts.updated++;
+          } else if (result.action === 'unchanged') {
+            stats.posts.unchanged++;
+            log.verbose(`Skipped ${slug} (no changes)`);
           } else {
             stats.posts.skipped++;
           }
@@ -594,6 +700,9 @@ async function main() {
             stats.pages.created++;
           } else if (result.action === 'update' || result.action === 'would-update') {
             stats.pages.updated++;
+          } else if (result.action === 'unchanged') {
+            stats.pages.unchanged++;
+            log.verbose(`Skipped ${slug} (no changes)`);
           } else {
             stats.pages.skipped++;
           }
@@ -612,16 +721,18 @@ async function main() {
   console.log(chalk.bold('═══════════════════════════════════════'));
 
   console.log(chalk.bold('  Posts:'));
-  console.log(`    Created: ${stats.posts.created}`);
-  console.log(`    Updated: ${stats.posts.updated}`);
-  console.log(`    Skipped: ${stats.posts.skipped}`);
-  console.log(`    Failed:  ${stats.posts.failed}`);
+  console.log(`    Created:   ${stats.posts.created}`);
+  console.log(`    Updated:   ${stats.posts.updated}`);
+  console.log(`    Unchanged: ${stats.posts.unchanged}`);
+  console.log(`    Skipped:   ${stats.posts.skipped}`);
+  console.log(`    Failed:    ${stats.posts.failed}`);
 
   console.log(chalk.bold('  Pages:'));
-  console.log(`    Created: ${stats.pages.created}`);
-  console.log(`    Updated: ${stats.pages.updated}`);
-  console.log(`    Skipped: ${stats.pages.skipped}`);
-  console.log(`    Failed:  ${stats.pages.failed}`);
+  console.log(`    Created:   ${stats.pages.created}`);
+  console.log(`    Updated:   ${stats.pages.updated}`);
+  console.log(`    Unchanged: ${stats.pages.unchanged}`);
+  console.log(`    Skipped:   ${stats.pages.skipped}`);
+  console.log(`    Failed:    ${stats.pages.failed}`);
 
   if (stats.pluginStats?.plugins.size > 0) {
     console.log(chalk.bold('  Global Plugin Data:'));
@@ -633,8 +744,14 @@ async function main() {
     }
   }
 
-  if (stats.mediaUploaded > 0) {
-    console.log(`  Media uploaded: ${stats.mediaUploaded}`);
+  if (stats.mediaUploaded > 0 || stats.mediaReused > 0) {
+    console.log(chalk.bold('  Media:'));
+    if (stats.mediaUploaded > 0) {
+      console.log(`    Uploaded: ${stats.mediaUploaded}`);
+    }
+    if (stats.mediaReused > 0) {
+      console.log(`    Reused:   ${stats.mediaReused}`);
+    }
   }
 
   if (stats.extensions.size > 0) {

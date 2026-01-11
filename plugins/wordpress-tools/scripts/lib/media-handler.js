@@ -198,7 +198,7 @@ export function restoreMediaUrls(content, mapping) {
  * Upload all media files from a directory
  * @param {string} mediaDir - Directory containing media files
  * @param {Object} apiClient - WPApiClient instance
- * @param {Function} onProgress - Progress callback (filename, success, error)
+ * @param {Function} onProgress - Progress callback (filename, success, error, skipped)
  * @returns {Promise<Map<string, string>>} Local filename to WordPress URL mapping
  */
 export async function uploadAllMedia(mediaDir, apiClient, onProgress = null) {
@@ -215,6 +215,17 @@ export async function uploadAllMedia(mediaDir, apiClient, onProgress = null) {
     const filePath = join(mediaDir, filename);
 
     try {
+      // Check if media already exists in WordPress
+      const existingMedia = await apiClient.getMediaByFilename(filename);
+
+      if (existingMedia) {
+        // Use existing media URL instead of uploading duplicate
+        mapping.set(filename, existingMedia.source_url);
+        if (onProgress) onProgress(filename, true, null, true);
+        continue;
+      }
+
+      // Upload new media
       const media = await apiClient.uploadMedia(filePath);
       mapping.set(filename, media.source_url);
       if (onProgress) onProgress(filename, true);

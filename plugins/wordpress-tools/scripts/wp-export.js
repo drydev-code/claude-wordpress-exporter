@@ -16,6 +16,10 @@ import {
   replaceMediaUrls,
   saveMediaMapping,
 } from './lib/media-handler.js';
+import {
+  generateChecksums,
+  saveChecksums,
+} from './lib/checksum.js';
 
 // CLI setup
 program
@@ -615,7 +619,12 @@ async function exportItem(item, type, config, client, plugins, stats) {
     log.verbose(`  Saved additional meta (${Object.keys(remaining).length} fields)`);
   }
 
-  return { slug, id: item.id, extensions: detectedExtensions };
+  // Generate and save checksums for change detection
+  const checksums = await generateChecksums(contentDir);
+  await saveChecksums(checksums, join(contentDir, 'checksums.json'));
+  log.verbose(`  Generated checksums (combined: ${checksums.combined.substring(0, 12)}...)`);
+
+  return { slug, id: item.id, extensions: detectedExtensions, checksum: checksums.combined };
 }
 
 /**
@@ -764,6 +773,7 @@ async function main() {
   };
 
   const manifest = {
+    version: 2,
     exportDate: new Date().toISOString(),
     sourceUrl: config.url,
     contentType: config.contentType,

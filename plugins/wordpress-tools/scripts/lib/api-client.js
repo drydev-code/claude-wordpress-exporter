@@ -269,6 +269,33 @@ export class WPApiClient {
   }
 
   /**
+   * Search for media by filename
+   * @param {string} filename - Filename to search for (without path)
+   * @returns {Promise<Object|null>} Media data or null if not found
+   */
+  async getMediaByFilename(filename) {
+    // Remove extension and hash suffix for search (e.g., "image-abc123.jpg" -> "image")
+    const searchTerm = filename
+      .replace(/\.[^.]+$/, '') // Remove extension
+      .replace(/-[a-f0-9]{8}$/, ''); // Remove hash suffix if present
+
+    const { data } = await this.request(
+      `/media?search=${encodeURIComponent(searchTerm)}&per_page=100`
+    );
+
+    // Find exact match by comparing source_url filename
+    for (const media of data) {
+      const mediaFilename = basename(media.source_url);
+      // Check if the WordPress filename contains the original filename (without hash)
+      if (mediaFilename === filename || mediaFilename.includes(searchTerm)) {
+        return media;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Upload a media file
    * @param {string} filePath - Local file path
    * @param {Object} metadata - Optional metadata (title, alt_text, caption)
